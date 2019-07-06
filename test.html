@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>RadiumStudio</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+	<style>
+		html,body,div,header,h1,h2,footer,p,ul,li,span,a,dl,dt,dd,
+		section,canvas,input,button,form,textarea,select{
+			margin: 0;
+			padding: 0;
+			list-style: none;
+			color: #fff;
+			box-sizing: border-box;
+		}
+		a{
+			text-decoration: none;
+		}
+		html,body {
+		  height: 100%;
+		  width: 100%;
+		  font: 14px "Lucida Grande", Helvetica, Arial, sans-serif;
+		  background-color: #000;
+		  color: #fff;
+		  text-align: center;
+		  overflow: hidden;
+		}
+		input[type='range'] {
+			-webkit-appearance: none;
+			background-color: gray;
+			height: 8px;
+			border-radius: 15px;
+			outline: none;
+		}
+		/*滑块样式*/
+		input[type='range']::-webkit-slider-thumb{
+		    -webkit-appearance: none;
+		    height: 12px;
+		    width: 12px;
+		    background: #ddd;
+		    border-radius: 100%;
+		    border: none;
+		}
+		/*滑条*/
+		input[type='range']::-moz-range-track{
+		    height: 8px;
+		    background: gray;
+		    border-radius: 15px;
+		    border: none;
+		}
+		input[type='range']::-moz-range-thumb{
+		    height: 12px;
+		    width: 12px;
+		    background: #ddd;
+		    border: none;
+		    border-radius: 100%;
+		}
+		header,.right{
+			/*布局采用绝对定位*/
+			position: absolute;
+		}
+		header{
+			left: 0px;
+			top: 0px;
+			right: 0px;
+			height: 150px;
+			z-index: 10;
+			/*background-color: white;*/
+			/*color: black;*/
+		}
+		header button#add{
+			display: block;
+			color: white;
+			background-color: black;
+			margin: 10px auto;
+			height: 50px;
+			font-size: 30px;
+			border-radius: 5px;
+			padding: 0 5px;
+		}
+		header input#loadfile{
+			display: none;
+		}
+		ul.type{
+			display: inline-block;
+			border: solid #fff 1px;
+			cursor: pointer;
+			margin-bottom: 10px;
+			border-radius: 5px;
+		}
+		ul.type li{
+			float: left;
+			height: 30px;
+			line-height: 30px;
+			width: 80px;
+		}
+		.right{
+			height: 300px;
+			/*top: 150px;*/
+			left: 0px;
+			bottom: 0px;
+			right: 0px;
+		}
+		.selected{
+			color: green;
+		}
+		.selectedType{
+			color: #000;
+			background-color: #fff;
+		}
+
+		/*媒体查询*/
+		@media screen and (max-width:800px),screen and (max-height:500px){
+			body{
+				font-size: 12px;
+			}
+			header{
+				height: 85px;
+			}
+			header h1{
+				font-size: 24px;
+				height: 34px;
+				line-height: 34px;
+			}
+			header button#add{
+				font-size: 20px;
+				height: 25px;
+				width: 40%;
+			}
+			ul.type{
+				margin-bottom: 2px;
+			}
+			ul.type li{
+				height: 19px;
+				line-height: 19px;
+			}
+			.right{
+				/*top:85px;*/
+			}
+		}
+	</style>
+</head>
+<body>
+	<header>
+  	  <button id="add">Load Music</button>
+  	  <input id="loadfile" type="file">
+
+      <p>
+        Volume<input id="volume" type="range" min="0" max="100" value="60">
+      </p>
+  	</header>
+  	<!-- 歌曲列表区域 -->
+    <!-- <div class="left">
+      <button id="add">Load localMusic</button>
+      <input id="loadfile" type="file">
+    	<ul id="list">
+
+    	</ul>
+    </div> -->
+    <!-- 画布canvas区域 -->
+    <div class="right"></div>
+
+	<script src="three.min.js"></script>
+	<script src="stats.js"></script>
+	<script>
+		function Musicvisualizer(obj){
+		this.source = null;
+		this.count = 0;
+
+		this.analyser = Musicvisualizer.ac.createAnalyser();
+		this.size = obj.size;
+		this.analyser.fftSize = this.size*2;
+
+		// GainNode用来控制音频的音量
+		this.gainNode = Musicvisualizer.ac[Musicvisualizer.ac.createGain?"createGain":"createGainNode"]();
+		// 对象调用对象可以用obj.method，也可以obj[method]
+		this.gainNode.connect(Musicvisualizer.ac.destination);
+
+		this.analyser.connect(this.gainNode);
+
+		this.xhr = new XMLHttpRequest();
+		this.draw = obj.draw;
+		this.visualize();
+	}
+
+	Musicvisualizer.ac = new (window.AudioContext || window.webkitAudioContext)();//共用的
+
+	// 解决 Chrome 66之后高版本中AudioContext被强行suspend的问题
+	if(typeof AudioContext != "undefined" || typeof webkitAudioContext != "undefined") {
+	   var resumeAudio = function() {
+	      if(typeof Musicvisualizer.ac == "undefined" || Musicvisualizer.ac == null) return;
+	      if(Musicvisualizer.ac.state == "suspended") Musicvisualizer.ac.resume();
+	      document.removeEventListener("click", resumeAudio);
+	   };
+	   document.addEventListener("click", resumeAudio);
+	}
+
+	// load -> decode -> play
+	Musicvisualizer.prototype.load = function(url,fun){
+		this.xhr.abort();
+		this.xhr.open("GET",url);
+		this.xhr.responseType = "arraybuffer";
+		var self = this;
+		this.xhr.onload = function(){
+			fun(self.xhr.response);
+		}
+		this.xhr.send();
+	}
+
+	// BaseAudioContext.decodeAudioData()用来生成AudioBuffer
+	// AudioBuffer供AudioBufferSourceNode使用，这样，AudioBufferSourceNode才可以播放音频数据
+	Musicvisualizer.prototype.decode = function(arraybuffer,fun){
+		Musicvisualizer.ac.decodeAudioData(arraybuffer,function(buffer){
+			fun(buffer);
+		},function(err){
+			console.log(err);
+		});
+	}
+
+	Musicvisualizer.prototype.play = function(path){
+		var n = ++this.count;
+		var self = this;
+		self.source && self.source[self.source.stop ? "stop":"noteOff"](); // 开始前先暂停之前音频的播放，防止多份音频同时播放
+		if(path instanceof ArrayBuffer){
+			self.decode(path,function(buffer){
+				if(n!=self.count) return;
+				var bufferSource = Musicvisualizer.ac.createBufferSource();
+				// 将解码成功后的buffer赋值给bufferSource的buffer属性
+				bufferSource.buffer = buffer;
+				bufferSource.loop = true;
+				bufferSource.connect(self.analyser);
+				bufferSource[bufferSource.start?"start":"noteOn"](0);
+				self.source = bufferSource;
+			});
+		}
+		else{
+			self.load(path,function(arraybuffer){
+				if(n!=self.count) return;
+				self.decode(arraybuffer,function(buffer){
+					if(n!=self.count) return;
+					var bufferSource = Musicvisualizer.ac.createBufferSource();
+					// 将解码成功后的buffer赋值给bufferSource的buffer属性
+					bufferSource.buffer = buffer;
+					bufferSource.connect(self.analyser);
+					bufferSource[bufferSource.start?"start":"noteOn"](0);
+					self.source = bufferSource;
+				});
+			});
+		}
+
+	}
+
+	Musicvisualizer.prototype.changeVolumn = function(percent){
+		this.gainNode.gain.value = percent * percent;
+	}
+
+	Musicvisualizer.prototype.visualize = function(){
+		var self = this;
+		var arr = new Uint8Array(self.analyser.frequencyBinCount);//数组长度是fftsize的一半
+		// console.log(self.analyser.frequencyBinCount)
+		requestAnimationFrame = window.requestAnimationFrame ||
+								window.webkitrequestAnimationFrame ||
+								window.mozrequestAnimationFrame;//兼容
+		function fn(){
+			self.analyser.getByteFrequencyData(arr);// 将音频频域数据复制到传入的Uint8Array数组
+			self.draw(arr);
+			requestAnimationFrame(fn);
+		}
+		requestAnimationFrame(fn);
+	}
+	function $(s){
+		return document.querySelectorAll(s);
+	}
+
+	var size = 128;//定义的音频数组长度
+
+	var box = $('.right')[0];
+	var canvas = document.createElement("canvas");
+	var ctx = canvas.getContext("2d");
+	var line;//渐变色变量
+	box.appendChild(canvas);
+	var height,width;
+	var Dots = [];//用于存放点对象数组,点的坐标和颜色信息
+	var list = $("#list li");
+
+	var mv = new Musicvisualizer({
+		size:size,
+		draw:draw
+	});
+
+	// 歌曲点击切换
+	// for(var i=0;i<list.length;i++){
+	// 	list[i].onclick = function(){
+	// 		for(var j=0;j<list.length;j++){
+	// 			list[j].className = "";
+	// 		}
+	// 		this.className = "selected";
+	// 		mv.play("/media/"+this.title);
+	// 		// load("/media/"+this.title);
+	// 	};
+	// }
+
+	// 切换可视化效果类型
+	var typeli = $(".type li");
+	for(var i=0;i<typeli.length;i++){
+		typeli[i].onclick = function(){
+			for(var j=0;j<typeli.length;j++){
+				typeli[j].className = "";
+			}
+			this.className = "selectedType";
+			draw.type = this.getAttribute("data-type");
+		}
+	}
+
+
+
+	function getRandom(m,n){
+		return Math.round(Math.random()*(n-m)+m);
+	}
+	function getDots(){
+		Dots = [];
+		for(var i=0;i<size;i++){
+			var DotX = getRandom(0,width);
+			var DotY = getRandom(0,height);
+			// rgba 增加透明度  最边缘透明度为0
+			var DotColor = "rgba("+getRandom(0,255)+","+getRandom(0,255)+","+getRandom(0,255)+",0)";
+			Dots.push({
+				x:DotX,
+				y:DotY,
+				color:DotColor,
+				cap:0,//柱状上面小方块高度参数
+				dx:getRandom(1,2)
+			});
+		}
+	}
+
+	/**
+	 * [resize 根据窗口大小改变canvas画布大小]
+	 * @return {[type]} [description]
+	 */
+	function resize(){
+		height = box.clientHeight;
+		width = box.clientWidth;
+		canvas.width = width;
+		canvas.height = height;
+
+		// 设置渐变色
+		line = ctx.createLinearGradient(0,0,0,height);//线性渐变
+		line.addColorStop(0,"red");
+		line.addColorStop(0.5,"orange");
+		line.addColorStop(1,"green");
+		getDots();
+	}
+	resize();
+	window.onresize = resize;
+
+
+	var vol = $("#volume")[0];
+	vol.onchange = function(){
+		mv.changeVolumn(this.value/this.max);
+	}
+	mv.changeVolumn(0.6);//初始化音频大小
+
+	var renderer;
+	var scene;
+	var camera;
+
+    scene = new THREE.Scene();
+
+    //创建一个摄像机
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);//相机
+    // camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 10, 1000);
+    camera.position.set(40, 0, 100);
+    camera.lookAt(new THREE.Vector3(0,0,0));
+    scene.add(camera);
+
+    //添加一个渲染器
+	renderer = new THREE.WebGLRenderer({
+	    //增加下面两个属性，可以抗锯齿
+	    antialias:true,
+	    alpha:true
+	});
+    renderer.setClearColor(0x0, 1.0);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+
+
+    //添加长方体
+    var geometry = new THREE.BoxGeometry(2, 10, 2);
+    var matarial = new THREE.MeshLambertMaterial({color: 'red'});
+    var cube = new THREE.Mesh(geometry, matarial);
+    cube.position.y = 5;
+    // scene.add(cube);
+
+    //添加坐标系
+    var axis = new THREE.AxisHelper(100);
+    // scene.add(axis);
+
+
+    //添加stat
+	var stats = new Stats();
+	stats.showPanel( 1 ); // 0: fps, 1: ms, 2: mb, 3+: custom
+	document.body.appendChild( stats.dom );
+
+    var light = new THREE.DirectionalLight(0xffffff);
+    light.position.set(20, 30, 20);
+    scene.add(light);
+
+	//This will add a starfield to the background of a scene
+	var starsGeometry = new THREE.Geometry();
+
+	for ( var i = 0; i < 10000; i ++ ) {
+
+	    var star = new THREE.Vector3();
+
+	    star.x = THREE.Math.randFloatSpread( 2000 );
+	    star.y = THREE.Math.randFloatSpread( 2000 );
+	    star.z = THREE.Math.randFloatSpread( 2000 );
+
+	    starsGeometry.vertices.push( star );
+
+	}
+
+	var starsMaterial = new THREE.PointsMaterial( { color: 0xfefefe } );
+
+	var starField = new THREE.Points( starsGeometry, starsMaterial );
+
+	scene.add( starField );
+
+
+
+// 	var mp3 = "__JS__/test.mp3";
+// 	var mp3 = new Audio(mp3);
+// 	// mp3.play();
+//            
+	var emptyGeometry = new THREE.Geometry();
+	var emptyMaterial = new THREE.PointsMaterial( { color: 0x00f000 } );
+
+
+        //定义材质THREE.LineBasicMaterial . MeshBasicMaterial...都可以
+        var material = new THREE.LineBasicMaterial({color:0x0000ff});
+        // 空几何体，里面没有点的信息,不想BoxGeometry已经有一系列点，组成方形了。
+        var geometry = new THREE.Geometry();
+        // 给空白几何体添加点信息，这里写3个点，geometry会把这些点自动组合成线，面。
+		var p1 = new THREE.Vector3(-10,0,0);
+		var p2 = new THREE.Vector3(10,0,0)
+        geometry.vertices.push(p1,p2);
+
+        var line=new THREE.Line(geometry,material);
+        // 加入到场景中
+        scene.add(line);       
+
+
+
+    render();
+
+	document.body.appendChild(renderer.domElement);
+
+
+	var counter = 0;
+
+	function render(radius) {
+		stats.begin();
+
+        var geometry = new THREE.Geometry();
+        var material = new THREE.LineBasicMaterial({color:0x0000ff});
+
+	    scene.remove(line);
+		var p1 = new THREE.Vector3(-10,0,0);
+		var p2 = new THREE.Vector3(camera.position.x,0,0)
+        geometry.vertices.push(p1,p2);
+
+        var line = new THREE.Line(geometry,material);
+        // 加入到场景中
+        scene.add(line);  
+
+        // if (counter++ == 1) {
+        	var starsGeometry = new THREE.Geometry();
+			for ( var i = 0; i < 6.282; i += 0.1 ) {
+
+			    var star = new THREE.Vector3();
+
+			    star.x = camera.position.x - 1;
+			    star.y = radius * Math.cos(i);
+			    star.z = radius * Math.sin(i);
+
+			    starsGeometry.vertices.push( star );
+			    counter = 0;
+
+			}
+
+			var starsMaterial = new THREE.PointsMaterial( { color: 0x0000ff } );
+
+			var starCircle = new THREE.Points( starsGeometry, starsMaterial );
+
+			scene.add( starCircle );
+        // }     
+
+        starField.position.x += 1;
+        starField.rotation.y += 0.002;
+
+		camera.position.x += 1;
+
+
+	    stats.end();
+
+	    renderer.render(scene, camera);
+
+	}
+
+
+
+
+
+
+
+
+
+	function draw(arr){
+		ctx.clearRect(0,0,width,height);//每次绘制时，清空上次画布内容
+		ctx.fillStyle = line;
+		var rectWidth = width/size;
+		var cw = rectWidth*0.6;
+		var capHeight = cw > 10?10:cw;//防止上面矩形过高
+		sum = 0;
+		for (var i = 0; i < 80; i++) {
+			sum += arr[i];
+		}
+		render(sum / 80 / 10);
+		// console.log(arr[10]);
+		for(var i=0;i<size;i++){
+			var o = Dots[i];
+			if(draw.type == "column"){
+				var rectHeight = arr[i]/256*height;//音频数据最大值256
+				// 绘制矩形条（x,y,width,height）; rectWidth*0.6使矩形之间有间隙
+				ctx.fillRect(rectWidth*i,height-rectHeight,cw,rectHeight);
+				ctx.fillRect(rectWidth*i,height-(o.cap+capHeight),cw,capHeight);
+				o.cap--;
+				if(o.cap<0){
+					o.cap =0;
+				}
+				if(rectHeight>0 && o.cap<rectHeight+40){
+					o.cap = rectHeight+40 > height-capHeight ? height-capHeight:rectHeight+40;
+				}
+			}else if(draw.type == "dot"){
+				ctx.beginPath();//声明，防止各个圆之间连线起来
+				var r = 5+arr[i]/256*(height>width?height:width)/12;//圆的半径 最小10px,并且半径大小会依赖屏幕的宽度大小
+				ctx.arc(o.x,o.y,r,0,Math.PI*2,true);//x,y,半径，起始角度，绘制角度，是否逆时针
+				var round = ctx.createRadialGradient(o.x,o.y,0,o.x,o.y,r);//从圆心到圆最外围
+				round.addColorStop(0,"#fff");
+				round.addColorStop(1,o.color);
+				ctx.fillStyle = round;
+				ctx.fill();
+				// ctx.strokeStyle = round;
+				// ctx.stroke();
+				o.x += o.dx;
+				o.x = o.x > width ? 0 : o.x;
+			}
+
+		}
+	}
+	draw.type = "column";//默认显示效果类型
+
+	$("#add")[0].onclick = function(){
+		$("#loadfile")[0].click();
+	}
+
+	$("#loadfile")[0].onchange = function(){
+		var file = this.files[0];
+		var fr = new FileReader();
+
+		fr.onload = function(e){
+			// 重写play方法  这边e.target.result已经是arraybuffer对象类型，不再是ajax路径读入
+			mv.play(e.target.result);
+		}
+		fr.readAsArrayBuffer(file);
+		// $("#loadfile")[0].value = '';
+	}
+	</script>
+
+</body>
+</html>
